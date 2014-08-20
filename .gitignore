@@ -1,0 +1,26 @@
+###OSX###
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must ends with two \r.
+Icon
+
+# Thumbnails
+._*
+
+# Files that might appear on external disk
+.Spotlight-V100
+.Trashes
+
+
+###Linux###
+
+*~
+
+# KDE directory preferences
+.directory
+
+# enviornment variables file
+env_vars

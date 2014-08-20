@@ -1,0 +1,302 @@
+set_locales() {
+    export LANGUAGE=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    locale-gen en_US.UTF-8
+    dpkg-reconfigure locales
+
+    # set the time to default New York
+    echo "America/New_York" > /etc/timezone
+    dpkg-reconfigure -f noninteractive tzdata
+}
+
+check(){
+    [[ "$AWS_S3_BUCKET" ]] || usage
+    [[ "$AWS_ACCESS_KEY" ]] || usage
+    [[ "$AWS_SECRET_KEY" ]] || usage
+    [[ "$GPG_PASSPHRASE" ]] || usage
+    [[ "$PUB_KEY" ]] || usage
+    [[ "$PRI_KEY" ]] || usage
+
+    setup_keys
+
+    [[ -d /root/.ssh ]] || usage
+}
+
+build_app(){
+    local destination=$1
+    local gofile=Goopfile
+    local npmfile=package.json
+
+    # build the app
+    cd $destination
+
+    # make sure the clone worked
+    if [[ ! -d .git ]]; then
+        colorize '<red>.git directory does not exist!</red>'
+        exit 1
+    fi
+
+    local go_file_count=$(ls -1 *.go 2>/dev/null | wc -l)
+    if [[ $go_file_count != 0 ]]; then
+        # it's a go app
+        colorize '<blue>Found a go app.</blue>'
+
+        if [[ ! -f "Makefile" ]]; then
+            colorize "<red>Whoa this is awkward. No makefile was found for your app. Eeeeeek.</red>"
+            exit 1
+        fi
+
+        if [[ -f $gofile ]]; then
+            colorize '<cyan>Installing requirements from Goopfile</cyan>'
+            while read pkg; do
+                colorize "<cyan>Running go get $pkg...</cyan>"
+                go get $pkg
+            done <$gofile
+        fi
+
+        make
+    fi
+
+    if [[ -f $npmfile ]]; then
+        # it's a node app
+        colorize '<blue>Found a node app.</blue>'
+        colorize '<cyan>Attempting to `npm install --production`.</cyan>'
+        colorize '<cyan>But first we will say a small prayer...</cyan>'
+
+        npm install --production
+    fi
+
+    if [[ -f "Gruntfile.js" ]]; then
+        colorize '<blue>Found a Gruntfile, running `grunt`.</blue>'
+
+        npm install --development
+        grunt
+    fi
+
+    if [[ -f "bower.json" ]]; then
+        colorize '<blue>Found a Bower file, running `bower install`.</blue>'
+        bower install
+    fi
+
+    # create the .date & .sha file
+    local sha=$(git --git-dir .git rev-parse HEAD)
+    local date=$(date)
+    echo $sha > .sha
+    echo $date > .date
+
+    # remove the .git directory
+    # if it still exists
+    if [[ -d ".git" ]]; then
+        rm -rf .git
+    fi
+
+    colorize "<purple>Build has sha: $sha with date: $date</purple>"
+
+    cd ../
+}
+
+setup_keys(){
+    local prikey=/root/.ssh/id_rsa
+    local begin='-----BEGIN RSA PRIVATE KEY-----'
+    local end='-----END RSA PRIVATE KEY-----'
+
+    # setup ssh keys for pulling from private git repos
+    mkdir -p /root/.ssh
+
+    echo "$PUB_KEY" > ${prikey}.pub
+    chmod 600 ${prikey}.pub
+
+    PRI_KEY=$(echo "$PRI_KEY" | sed 's/-----BEGIN RSA PRIVATE KEY-----//g' | sed 's/-----END RSA PRIVATE KEY-----//g' | sed 's/ /\n/g')
+    echo -e "${begin}\n${PRI_KEY}\n${end}" > ${prikey}
+    chmod 600 ${prikey}
+
+    if [[ ! -z "$KEY_PASSPHRASE" ]]; then
+        # reset the key passphrase
+        ssh-keygen -P "$KEY_PASSPHRASE" -N "${KEY_PASSPHRASE}_new" -f $prikey.pub -p
+    fi
+}
+
+create_git_config(){
+    local src_uri=$1
+    local user=$2
+
+    cat <<EOF > /etc/ssh/ssh_config
+Host ${src_uri}
+    HostName ${src_uri}
+    User ${user}
+    IdentityFile /root/.ssh/id_rsa
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+EOF
+
+    git config --global url."${user}@${src_uri}:".insteadOf "https://${src_uri}/"
+}
+
+
+clone_repo() {
+    local branch=$1
+    local repo=$2
+    local destination=$3
+    local pri_key=/root/.ssh/id_rsa
+
+    local user=$(echo $repo | cut -f1 -d "@")
+    local src_uri=$(echo $repo | cut -f1 -d ":" | sed 's/^[^@]*@//')
+
+    # make sure we haven't cloned already (we want a freshy)
+    test -d $destination && rm -rf $destination
+    test -f $destination && rm -rf $destination
+
+    # clone the app
+    # grab the latest version of the app & only get the latest code
+    colorize "<white>Cloning</white> <yellow>$repo</yellow> <white>from branch:</white> <yellow>$branch</yellow> <white>to</white> <yellow>$destination</yellow>"
+
+    # setup the ssh config
+    create_git_config $src_uri $user
+
+    git clone --depth 1 -b $branch $repo $destination
+    colorize "<green>${repo}#${branch} successfully cloned to ${destination}</green>"
+}
+
+go_get() {
+    local src=$1
+
+    # parse the src for the url
+    local src_uri=$(echo $src | cut -f1 -d "/")
+
+    # setup the ssh config
+    create_git_config $src_uri "git"
+
+    colorize "`go get`ting <yellow>$src</yellow>"
+
+    go get $src
+    colorize "<green>Successfully `go got` $src</green>"
+}
+
+
+release() {
+    local repo=$1
+    local branch=$2
+
+    # parse the git repo for the owner & project name
+    local repo_cleaned=$(echo $repo | sed 's/^[^:]*://' | sed 's/.git$//')
+    local repo_array=(${repo_cleaned//\// })
+
+    local owner=${repo_array[0]}
+
+    # if the length is 2 then set the vars
+    if [[  ${#repo_array[@]} == 2 ]]; then
+        local project=${repo_array[1]}
+    else
+        local project=$owner
+    fi
+
+    colorize "Repo parsed owner: <cyan>${owner}</cyan> and name: <cyan>${project}</cyan>."
+
+    # clone the repo
+    clone_repo $branch $repo $project
+
+    # install/make app
+    build_app $project
+
+    # make the tar
+    tar_build $owner $project $branch
+}
+
+
+release_binary(){
+    local src=$1
+    local name=$(echo $src | sed 's/^[^\/]*\///')
+    local temp_tar=tmp_tar.tar.gz
+
+    # go get the source
+    go_get $src
+
+    # build the binaries
+    mkdir -p /binaries
+    gox -output="/binaries/{{.OS}}/{{.Arch}}/{{.Dir}}" $src
+
+    echo "Built:"
+    tree /binaries
+
+    for d in /binaries/*/*; do
+        local GOARCH="$(basename "$d")"
+        local GOOS="$(basename "$(dirname "$d")")"
+        local s3_url="s3://${AWS_S3_BUCKET}/${name}/${GOOS}/${GOARCH}"
+
+        cd /binaries/${GOOS}/${GOARCH}/
+
+        for f in /binaries/${GOOS}/${GOARCH}/*; do
+            local base_f=$(basename $f)
+
+            # create a tarball
+            tar -zcf $temp_tar --exclude='*.tar.gz' $base_f
+
+            write_to_s3 $s3_url $temp_tar $base_f
+        done
+    done
+}
+
+
+setup_gpg() {
+    # start random
+    rngd -r /dev/urandom
+
+    # Make sure that we have our keys
+    mkdir -p .gnupg/
+    gpg --gen-key --batch <<EOF
+Key-Type: RSA
+Key-Length: 4096
+Passphrase: $GPG_PASSPHRASE
+Name-Real: Hova Release Tool
+Name-Email: dev@yhathq.com
+Name-Comment: release
+Expire-Date: 0
+%commit
+EOF
+
+    # kill random
+    kill $(ps -ef | grep [r]ngd | awk '{ print $2 }')
+}
+
+
+tar_build() {
+    local owner=$1
+    local project=$2
+    local branch=$3
+
+    colorize "<cyan>Creating tar for $project</cyan>"
+
+    # just spit out what the tree looks like
+    # gotta have that insta gratification
+    tree -a $project -L 2
+
+    # create a deployable tarball and then send it to S3
+    local temp_tar=tmp_tar.tar.gz
+    tar -zcf $temp_tar --exclude='*.tar.gz' $project
+
+    # write the tarball to s3
+    local s3_url="s3://${AWS_S3_BUCKET}/${owner}/${project}/${branch}"
+    write_to_s3 $s3_url $temp_tar
+}
+
+
+# write_to_s3 uploads the contents of standard input to the specified S3 url.
+write_to_s3() {
+    local s3_url=$1
+    local temp_tar=$2
+    local binary=$3
+    local now=$(date +"%y-%m-%d_%H-%M-%S")
+
+
+    colorize "<green>Releasing at time ${now} to ${s3_url}/${now}.tar.gz</green>"
+    s3cmd put --acl-public ${temp_tar} ${s3_url}/${now}.tar.gz
+    s3cmd cp --acl-public ${s3_url}/${now}.tar.gz ${s3_url}/latest.tar.gz
+
+    if [[ ! -z $binary ]]; then
+        colorize "<green>Binary ${binary} was found. Releasing that as well.</green>"
+        s3cmd put --acl-public ${binary} ${s3_url}/${binary}
+        s3cmd cp --acl-public ${s3_url}/${binary} ${s3_url}/${now}
+    fi
+
+    rm -f $temp_tar
+}
