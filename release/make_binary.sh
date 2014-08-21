@@ -52,7 +52,7 @@ main() {
     release_binary $src
 
     colorize "<white>Releasing</white> <blue>${src}</blue> <white>is complete.<white>"
-
+    colorize "<white>A sample binary url is:</white> <purple>${S3URL}</purple>"
     exit
 }
 

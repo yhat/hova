@@ -71,6 +71,39 @@ s3://${AWS_S3_BUCKET}/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/latest.tar.gz
 s3://${AWS_S3_BUCKET}/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/${TIMESTAMP}.tar.gz
 ```
 
+### Okay so now I have a tar...
+
+You can run it in a Docker container! What? Yessss!
+
+Below is a sample Docker file to use with your tarred node app.
+
+```
+FROM node:latest
+
+COPY latest.tar.gz /
+
+RUN mkdir -p /src; tar -C /src -zxf latest.tar.gz
+RUN mv /src/* /src/app
+
+
+WORKDIR /src/app
+
+# set the vars
+ENV PORT 8888
+ENV NODE_ENV production
+EXPOSE 8888
+
+# replace this with your main "server" script file
+CMD [ "node", "app.js" ]
+```
+
+In a directory with the above Dockerfile & your tar you can run `docker build --rm -t your/image_name .` to build the Docker image.
+
+Then to run your app it's as simple as `docker run -d --name your_app_name -p 8888 -e=ANY_ENV_VAR="val" your/image_name`.
+
+Happy deploying!!
+
+
 ## Release Cross Compiled Go Binaries
 
 Running `make binary-release` will release go binaries. You **MUST** pass a variable `SRC` to the command. For example,

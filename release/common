@@ -16,13 +16,14 @@ build_app(){
         exit 1
     fi
 
-    local go_file_count=$(ls -1 *.go 2>/dev/null | wc -l)
+    local go_file_count=$(find . -type f -name "*.go" | wc -l)
     if [[ $go_file_count != 0 ]]; then
         # it's a go app
         colorize '<blue>Found a go app.</blue>'
 
         if [[ ! -f "Makefile" ]]; then
-            colorize "<red>Whoa this is awkward. No makefile was found for your app. Eeeeeek.</red>"
+            colorize "<yellow>Well this is awkward. No makefile was found for your app.</yellow>"
+            colorize "<red>Did you mean to run 'make binary-release' instead?</red>"
             exit 1
         fi
 
@@ -138,10 +139,10 @@ go_get() {
     # setup the ssh config
     create_git_config $src_uri "git"
 
-    colorize "`go get`ting <yellow>$src</yellow>"
+    colorize "GO GETting <yellow>$src</yellow>"
 
     go get $src
-    colorize "<green>Successfully `go got` $src</green>"
+    colorize "<green>Successfully GO GOT $src</green>"
 }
 
 release() {
@@ -288,14 +289,16 @@ write_to_s3() {
     local now=$(date +"%y-%m-%d_%H-%M-%S")
 
 
-    colorize "<green>Releasing at time ${now} to ${s3_url}/${now}.tar.gz</green>"
-    s3cmd put --acl-public ${temp_tar} ${s3_url}/${now}.tar.gz
-    s3cmd cp --acl-public ${s3_url}/${now}.tar.gz ${s3_url}/latest.tar.gz
+    colorize "Releasing at time <green>${now}</green> to <green>${s3_url}</green>"
+    export S3URL=${s3_url}/${now}.tar.gz
+    s3cmd put --acl-public ${temp_tar} ${S3URL}
+    s3cmd cp --acl-public ${S3URL} ${s3_url}/latest.tar.gz
 
     if [[ ! -z $binary ]]; then
         colorize "<green>Binary ${binary} was found. Releasing that as well.</green>"
-        s3cmd put --acl-public ${binary} ${s3_url}/${binary}
-        s3cmd cp --acl-public ${s3_url}/${binary} ${s3_url}/${now}
+        export S3URL=${s3_url}/${binary}
+        s3cmd put --acl-public ${binary} ${S3URL}
+        s3cmd cp --acl-public ${S3URL} ${s3_url}/${now}
     fi
 
     rm -f $temp_tar

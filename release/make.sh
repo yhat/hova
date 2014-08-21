@@ -57,6 +57,7 @@ main() {
     release $repo $branch
 
     colorize "<white>Releasing</white> <cyan>${branch}</cyan> <white>branch of</white> <blue>${repo}</blue> <white>is complete.</white>"
+    colorize "<white>Check it out at:</white> <purple>${S3URL}</purple>"
 
     exit
 }

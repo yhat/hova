@@ -1,7 +1,7 @@
 ENV_FILE := ./env_vars
 DOCKER_IMAGE := yhat/hova
-DOCKER_BUILD := docker build --force-rm=true --rm=true -t $(DOCKER_IMAGE) .
-DOCKER_RUN_RELEASE := docker run --rm=true -it --net=host --privileged=true --env-file=$(ENV_FILE) -e=PUB_KEY="$(shell cat ~/.ssh/id_rsa.pub)" -e=PRI_KEY="$(shell cat ~/.ssh/id_rsa)"
+DOCKER_BUILD := docker build --force-rm --rm -t $(DOCKER_IMAGE) .
+DOCKER_RUN_RELEASE := docker run --rm -it --net=host --privileged=true --env-file=$(ENV_FILE) -e=PUB_KEY="$(shell cat ~/.ssh/id_rsa.pub)" -e=PRI_KEY="$(shell cat ~/.ssh/id_rsa)"
 BRANCH = "master"
 
 all: build
