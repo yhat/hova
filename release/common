@@ -1,26 +1,6 @@
-set_locales() {
-    export LANGUAGE=en_US.UTF-8
-    export LANG=en_US.UTF-8
-    locale-gen en_US.UTF-8
-    dpkg-reconfigure locales
-
-    # set the time to default New York
-    echo "America/New_York" > /etc/timezone
-    dpkg-reconfigure -f noninteractive tzdata
-}
-
-check(){
-    [[ "$AWS_S3_BUCKET" ]] || usage
-    [[ "$AWS_ACCESS_KEY" ]] || usage
-    [[ "$AWS_SECRET_KEY" ]] || usage
-    [[ "$GPG_PASSPHRASE" ]] || usage
-    [[ "$PUB_KEY" ]] || usage
-    [[ "$PRI_KEY" ]] || usage
-
-    setup_keys
-
-    [[ -d /root/.ssh ]] || usage
-}
+#!/usr/bin/env bash
+# -*- mode: bash -*-
+# vi: set ft=bash
 
 build_app(){
     local destination=$1
@@ -95,43 +75,18 @@ build_app(){
     cd ../
 }
 
-setup_keys(){
-    local prikey=/root/.ssh/id_rsa
-    local begin='-----BEGIN RSA PRIVATE KEY-----'
-    local end='-----END RSA PRIVATE KEY-----'
+check() {
+    [[ "$AWS_S3_BUCKET" ]] || usage
+    [[ "$AWS_ACCESS_KEY" ]] || usage
+    [[ "$AWS_SECRET_KEY" ]] || usage
+    [[ "$GPG_PASSPHRASE" ]] || usage
+    [[ "$PUB_KEY" ]] || usage
+    [[ "$PRI_KEY" ]] || usage
 
-    # setup ssh keys for pulling from private git repos
-    mkdir -p /root/.ssh
+    setup_keys
 
-    echo "$PUB_KEY" > ${prikey}.pub
-    chmod 600 ${prikey}.pub
-
-    PRI_KEY=$(echo "$PRI_KEY" | sed 's/-----BEGIN RSA PRIVATE KEY-----//g' | sed 's/-----END RSA PRIVATE KEY-----//g' | sed 's/ /\n/g')
-    echo -e "${begin}\n${PRI_KEY}\n${end}" > ${prikey}
-    chmod 600 ${prikey}
-
-    if [[ ! -z "$KEY_PASSPHRASE" ]]; then
-        # reset the key passphrase
-        ssh-keygen -P "$KEY_PASSPHRASE" -N "${KEY_PASSPHRASE}_new" -f $prikey.pub -p
-    fi
+    [[ -d /root/.ssh ]] || usage
 }
-
-create_git_config(){
-    local src_uri=$1
-    local user=$2
-
-    cat <<EOF > /etc/ssh/ssh_config
-Host ${src_uri}
-    HostName ${src_uri}
-    User ${user}
-    IdentityFile /root/.ssh/id_rsa
-    IdentitiesOnly yes
-    StrictHostKeyChecking no
-EOF
-
-    git config --global url."${user}@${src_uri}:".insteadOf "https://${src_uri}/"
-}
-
 
 clone_repo() {
     local branch=$1
@@ -157,6 +112,23 @@ clone_repo() {
     colorize "<green>${repo}#${branch} successfully cloned to ${destination}</green>"
 }
 
+create_git_config(){
+    local src_uri=$1
+    local user=$2
+
+    cat <<EOF > /etc/ssh/ssh_config
+Host ${src_uri}
+    HostName ${src_uri}
+    User ${user}
+    IdentityFile /root/.ssh/id_rsa
+    IdentitiesOnly yes
+    StrictHostKeyChecking no
+EOF
+
+    # allows go getting via ssh
+    git config --global url."${user}@${src_uri}:".insteadOf "https://${src_uri}/"
+}
+
 go_get() {
     local src=$1
 
@@ -171,7 +143,6 @@ go_get() {
     go get $src
     colorize "<green>Successfully `go got` $src</green>"
 }
-
 
 release() {
     local repo=$1
@@ -201,7 +172,6 @@ release() {
     # make the tar
     tar_build $owner $project $branch
 }
-
 
 release_binary(){
     local src=$1
@@ -236,6 +206,16 @@ release_binary(){
     done
 }
 
+set_locales() {
+    export LANGUAGE=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    locale-gen en_US.UTF-8
+    dpkg-reconfigure locales
+
+    # set the time to default New York
+    echo "America/New_York" > /etc/timezone
+    dpkg-reconfigure -f noninteractive tzdata
+}
 
 setup_gpg() {
     # start random
@@ -258,6 +238,26 @@ EOF
     kill $(ps -ef | grep [r]ngd | awk '{ print $2 }')
 }
 
+setup_keys(){
+    local prikey=/root/.ssh/id_rsa
+    local begin='-----BEGIN RSA PRIVATE KEY-----'
+    local end='-----END RSA PRIVATE KEY-----'
+
+    # setup ssh keys for pulling from private git repos
+    mkdir -p /root/.ssh
+
+    echo "$PUB_KEY" > ${prikey}.pub
+    chmod 600 ${prikey}.pub
+
+    PRI_KEY=$(echo "$PRI_KEY" | sed 's/-----BEGIN RSA PRIVATE KEY-----//g' | sed 's/-----END RSA PRIVATE KEY-----//g' | sed 's/ /\n/g')
+    echo -e "${begin}\n${PRI_KEY}\n${end}" > ${prikey}
+    chmod 600 ${prikey}
+
+    if [[ ! -z "$KEY_PASSPHRASE" ]]; then
+        # reset the key passphrase
+        ssh-keygen -P "$KEY_PASSPHRASE" -N "${KEY_PASSPHRASE}_new" -f $prikey.pub -p
+    fi
+}
 
 tar_build() {
     local owner=$1

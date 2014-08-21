@@ -56,7 +56,7 @@ main() {
 
     release $repo $branch
 
-    colorize "<white>Releasing</white> <cyan>${branch}</cyan> <white>branch of</white> <blue>${repo}</blue> <white>is complete.<white>"
+    colorize "<white>Releasing</white> <cyan>${branch}</cyan> <white>branch of</white> <blue>${repo}</blue> <white>is complete.</white>"
 
     exit
 }

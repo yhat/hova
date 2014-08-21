@@ -5,7 +5,8 @@
 .LSOverride
 
 # Icon must ends with two \r.
-Icon
+Icon
+
 
 # Thumbnails
 ._*
@@ -24,3 +25,9 @@ Icon
 
 # enviornment variables file
 env_vars
+
+# test directory
+tests
+
+# any test Trashes
+*.tar.gz
